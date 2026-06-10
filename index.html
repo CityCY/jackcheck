@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1d4d2b">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Jack Check — Bowls Measure</title>
+<style>
+  :root{
+    --green:#1d4d2b;
+    --green-deep:#10301a;
+    --cream:#f7f3e6;
+    --jack-white:#ffffff;
+    --score-gold:#e8b53a;
+    --alert-red:#c0392b;
+    --ink:#14210f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{
+    font-family:Georgia,'Times New Roman',serif;
+    background:var(--green-deep);
+    color:var(--cream);
+    min-height:100vh;
+    display:flex;flex-direction:column;align-items:center;
+  }
+  header{
+    width:100%;max-width:560px;
+    padding:18px 16px 10px;
+    text-align:center;
+  }
+  header h1{
+    font-size:30px;letter-spacing:.5px;color:var(--cream);
+    font-weight:normal;
+  }
+  header h1 .jack{
+    display:inline-block;width:.55em;height:.55em;border-radius:50%;
+    background:var(--jack-white);box-shadow:0 0 0 3px var(--score-gold);
+    margin:0 4px;
+  }
+  header p{font-size:16px;color:#bcd3b9;margin-top:4px}
+  main{width:100%;max-width:560px;padding:0 12px 30px;flex:1}
+
+  .panel{
+    background:var(--green);
+    border:2px solid #2e6b3f;
+    border-radius:14px;
+    padding:16px;
+    margin-top:14px;
+  }
+
+  /* Big primary buttons */
+  .btn{
+    display:block;width:100%;
+    font-family:inherit;font-size:24px;
+    padding:18px;border-radius:12px;border:none;
+    cursor:pointer;color:var(--ink);
+    background:var(--score-gold);
+    font-weight:bold;letter-spacing:.3px;
+    margin-top:10px;
+  }
+  .btn:active{transform:scale(.985)}
+  .btn.secondary{
+    background:transparent;color:var(--cream);
+    border:2px solid var(--score-gold);font-size:19px;padding:13px;
+  }
+  .btn:focus-visible{outline:3px solid #fff;outline-offset:2px}
+  .btn[disabled]{opacity:.4;cursor:default}
+
+  #stage{position:relative;margin-top:14px;display:none}
+  canvas{width:100%;border-radius:12px;display:block;touch-action:manipulation}
+
+  .instruction{
+    font-size:21px;line-height:1.4;text-align:center;
+    background:var(--cream);color:var(--ink);
+    border-radius:12px;padding:14px;margin-top:14px;
+    display:none;
+  }
+  .instruction strong{color:var(--green)}
+
+  #results{display:none}
+  .result-row{
+    display:flex;align-items:center;gap:14px;
+    background:var(--cream);color:var(--ink);
+    border-radius:12px;padding:14px;margin-top:10px;
+    font-size:22px;
+  }
+  .result-row .medal{font-size:30px;width:42px;text-align:center}
+  .result-row .dist{margin-left:auto;font-weight:bold;font-size:24px}
+  .result-row.winner{box-shadow:0 0 0 4px var(--score-gold)}
+  .too-close{
+    background:var(--alert-red);color:#fff;
+    border-radius:12px;padding:14px;margin-top:12px;
+    font-size:19px;text-align:center;display:none;
+  }
+  .note{font-size:15px;color:#bcd3b9;margin-top:12px;text-align:center;line-height:1.5}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Jack <span class="jack" aria-hidden="true"></span> Check</h1>
+  <p>Which bowl is closest? No bending required.</p>
+</header>
+
+<main>
+  <div class="panel" id="startPanel">
+    <button class="btn" id="btnPhoto">📷 Take a photo of the head</button>
+    <button class="btn secondary" id="btnDemo">Try with a demo image</button>
+    <p class="note">Stand over the head and photograph it from as directly above as you can. The jack must be visible.</p>
+    <input type="file" id="fileInput" accept="image/*" capture="environment">
+  </div>
+
+  <div class="instruction" id="instruction"></div>
+
+  <div id="stage" class="panel">
+    <canvas id="canvas"></canvas>
+    <button class="btn secondary" id="btnUndo" style="display:none">↩ Undo last tap</button>
+    <button class="btn" id="btnFinish" style="display:none">✓ Done — show results</button>
+  </div>
+
+  <div id="results" class="panel">
+    <div id="resultRows"></div>
+    <div class="too-close" id="tooClose">⚠️ Top two bowls are within ~1&nbsp;cm — too close to call from a photo. Use a string measure.</div>
+    <button class="btn" id="btnAgain">📷 Measure another end</button>
+    <p class="note">Distances are estimates scaled from the jack's official diameter (63.5&nbsp;mm). Accuracy depends on photographing from directly above.</p>
+  </div>
+</main>
+
+<script>
+(() => {
+  const JACK_MM = 63.5;               // standard jack diameter
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+  const instruction = document.getElementById('instruction');
+  const startPanel = document.getElementById('startPanel');
+  const resultsPanel = document.getElementById('results');
+  const resultRows = document.getElementById('resultRows');
+  const tooClose = document.getElementById('tooClose');
+  const btnUndo = document.getElementById('btnUndo');
+  const btnFinish = document.getElementById('btnFinish');
+
+  let img = new Image();
+  let phase = 'idle';      // 'jackCenter' -> 'jackEdge' -> 'bowls'
+  let jack = null;         // {x,y}
+  let jackEdge = null;     // {x,y}
+  let bowls = [];          // [{x,y}]
+  let mmPerPx = null;
+
+  function setInstruction(html){
+    instruction.innerHTML = html;
+    instruction.style.display = html ? 'block' : 'none';
+  }
+
+  function reset(){
+    phase='idle'; jack=null; jackEdge=null; bowls=[]; mmPerPx=null;
+    resultsPanel.style.display='none';
+    btnUndo.style.display='none';
+    btnFinish.style.display='none';
+  }
+
+  function loadImage(src){
+    reset();
+    img = new Image();
+    img.onload = () => {
+      const maxW = 1100;
+      const scale = Math.min(1, maxW / img.width);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      stage.style.display='block';
+      startPanel.style.display='none';
+      phase='jackCenter';
+      setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong> (the small white ball).');
+      draw();
+    };
+    img.src = src;
+  }
+
+  // ---------- demo image (synthetic head) ----------
+  function makeDemo(){
+    const c = document.createElement('canvas');
+    c.width = 900; c.height = 700;
+    const g = c.getContext('2d');
+    // green
+    const grad = g.createLinearGradient(0,0,0,700);
+    grad.addColorStop(0,'#3f7d3f'); grad.addColorStop(1,'#2f6b33');
+    g.fillStyle = grad; g.fillRect(0,0,900,700);
+    // mow stripes
+    g.globalAlpha=.07; g.fillStyle='#fff';
+    for(let x=0;x<900;x+=120) g.fillRect(x,0,60,700);
+    g.globalAlpha=1;
+    const ball=(x,y,r,col,hi)=>{
+      const rg=g.createRadialGradient(x-r*.35,y-r*.35,r*.15,x,y,r);
+      rg.addColorStop(0,hi); rg.addColorStop(1,col);
+      g.fillStyle=rg; g.beginPath(); g.arc(x,y,r,0,7); g.fill();
+      g.strokeStyle='rgba(0,0,0,.35)'; g.lineWidth=2; g.stroke();
+    };
+    ball(450,330,22,'#e8e4d8','#ffffff');             // jack
+    ball(560,300,40,'#1a1a1a','#555');                 // bowl 1 (black)
+    ball(380,460,40,'#1a1a1a','#555');                 // bowl 2
+    ball(620,470,40,'#5a2c14','#9a5a32');              // bowl 3 (brown)
+    ball(250,250,40,'#5a2c14','#9a5a32');              // bowl 4
+    return c.toDataURL('image/png');
+  }
+
+  // ---------- drawing ----------
+  function draw(){
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    if(jack){
+      ctx.strokeStyle='#e8b53a'; ctx.lineWidth=3;
+      cross(jack.x,jack.y,'#e8b53a');
+      if(jackEdge){
+        const r = dist(jack,jackEdge);
+        ctx.beginPath(); ctx.arc(jack.x,jack.y,r,0,7); ctx.stroke();
+      }
+    }
+    bowls.forEach((b,i)=>{
+      cross(b.x,b.y,'#ff5544');
+      if(jack){
+        ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2;
+        ctx.setLineDash([8,6]);
+        ctx.beginPath(); ctx.moveTo(jack.x,jack.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        ctx.setLineDash([]);
+        label(b.x,b.y-26,String(i+1));
+      }
+    });
+  }
+  function cross(x,y,col){
+    ctx.strokeStyle=col; ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(x-14,y); ctx.lineTo(x+14,y);
+    ctx.moveTo(x,y-14); ctx.lineTo(x,y+14);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.stroke();
+  }
+  function label(x,y,t){
+    ctx.font='bold 22px Georgia';
+    const w = ctx.measureText(t).width+16;
+    ctx.fillStyle='rgba(20,33,15,.85)';
+    ctx.beginPath(); ctx.roundRect(x-w/2,y-18,w,30,8); ctx.fill();
+    ctx.fillStyle='#e8b53a'; ctx.textAlign='center';
+    ctx.fillText(t,x,y+4);
+  }
+  const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+  // ---------- interaction ----------
+  canvas.addEventListener('click', e=>{
+    const r = canvas.getBoundingClientRect();
+    const p = {
+      x:(e.clientX-r.left)*(canvas.width/r.width),
+      y:(e.clientY-r.top)*(canvas.height/r.height)
+    };
+    if(phase==='jackCenter'){
+      jack=p; phase='jackEdge';
+      setInstruction('Step 2 of 3 — Now tap the <strong>edge of the jack</strong>. This sets the scale (a jack is 63.5&nbsp;mm wide).');
+      btnUndo.style.display='block';
+    } else if(phase==='jackEdge'){
+      jackEdge=p;
+      mmPerPx = (JACK_MM/2) / Math.max(2, dist(jack,jackEdge));
+      phase='bowls';
+      setInstruction('Step 3 of 3 — Tap the <strong>centre of each bowl</strong> you want measured, then press Done.');
+    } else if(phase==='bowls'){
+      bowls.push(p);
+      if(bowls.length>=1) btnFinish.style.display='block';
+    }
+    draw();
+  });
+
+  btnUndo.addEventListener('click', ()=>{
+    if(phase==='bowls' && bowls.length){ bowls.pop(); }
+    else if(phase==='bowls' && !bowls.length){ jackEdge=null; mmPerPx=null; phase='jackEdge';
+      setInstruction('Step 2 of 3 — Tap the <strong>edge of the jack</strong>.'); }
+    else if(phase==='jackEdge'){ jack=null; phase='jackCenter';
+      setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong>.'); }
+    if(bowls.length===0) btnFinish.style.display='none';
+    draw();
+  });
+
+  btnFinish.addEventListener('click', ()=>{
+    const measured = bowls.map((b,i)=>({
+      n:i+1,
+      mm: dist(jack,b)*mmPerPx - 0 // centre-to-centre estimate
+    })).sort((a,b)=>a.mm-b.mm);
+
+    resultRows.innerHTML='';
+    const medals=['🥇','🥈','🥉'];
+    measured.forEach((m,i)=>{
+      const row=document.createElement('div');
+      row.className='result-row'+(i===0?' winner':'');
+      const cm=(m.mm/10);
+      row.innerHTML=`<span class="medal">${medals[i]||(i+1)+'.'}</span>
+        <span>Bowl ${m.n}</span>
+        <span class="dist">${cm>=100?(cm/100).toFixed(2)+' m':cm.toFixed(1)+' cm'}</span>`;
+      resultRows.appendChild(row);
+    });
+    tooClose.style.display =
+      (measured.length>1 && (measured[1].mm-measured[0].mm)<10) ? 'block':'none';
+
+    setInstruction('');
+    resultsPanel.style.display='block';
+    btnFinish.style.display='none';
+    btnUndo.style.display='none';
+    resultsPanel.scrollIntoView({behavior:'smooth'});
+  });
+
+  document.getElementById('btnAgain').addEventListener('click', ()=>{
+    stage.style.display='none';
+    resultsPanel.style.display='none';
+    startPanel.style.display='block';
+    setInstruction('');
+    reset();
+  });
+
+  document.getElementById('btnPhoto').addEventListener('click',
+    ()=>document.getElementById('fileInput').click());
+  document.getElementById('fileInput').addEventListener('change', e=>{
+    const f=e.target.files[0];
+    if(f) loadImage(URL.createObjectURL(f));
+    e.target.value='';
+  });
+  document.getElementById('btnDemo').addEventListener('click',
+    ()=>loadImage(makeDemo()));
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
