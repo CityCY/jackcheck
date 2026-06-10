@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1d4d2b">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Jack Check — Bowls Measure</title>
+<style>
+:root{
+--green:#1d4d2b;
+--green-deep:#10301a;
+--cream:#f7f3e6;
+--jack-white:#ffffff;
+--score-gold:#e8b53a;
+--alert-red:#c0392b;
+--ink:#14210f;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+font-family:Georgia,'Times New Roman',serif;
+background:var(--green-deep);
+color:var(--cream);
+min-height:100vh;
+display:flex;flex-direction:column;align-items:center;
+}
+header{
+width:100%;max-width:560px;
+padding:18px 16px 10px;
+text-align:center;
+}
+header h1{
+font-size:30px;letter-spacing:.5px;color:var(--cream);
+font-weight:normal;
+}
+header h1 .jack{
+display:inline-block;width:.55em;height:.55em;border-radius:50%;
+background:var(--jack-white);box-shadow:0 0 0 3px var(--score-gold);
+margin:0 4px;
+}
+header p{font-size:16px;color:#bcd3b9;margin-top:4px}
+main{width:100%;max-width:560px;padding:0 12px 30px;flex:1}
+.panel{
+background:var(--green);
+border:2px solid #2e6b3f;
+border-radius:14px;
+padding:16px;
+margin-top:14px;
+}
+/* Big primary buttons */
+.btn{
+display:block;width:100%;
+font-family:inherit;font-size:24px;
+padding:18px;border-radius:12px;border:none;
+cursor:pointer;color:var(--ink);
+background:var(--score-gold);
+font-weight:bold;letter-spacing:.3px;
+margin-top:10px;
+}
+.btn:active{transform:scale(.985)}
+.btn.secondary{
+background:transparent;color:var(--cream);
+border:2px solid var(--score-gold);font-size:19px;padding:13px;
+}
+.btn:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.btn[disabled]{opacity:.4;cursor:default}
+#stage{position:relative;margin-top:14px;display:none}
+canvas{width:100%;border-radius:12px;display:block;touch-action:none}
+.zoombar{
+position:absolute;top:26px;right:26px;
+display:flex;flex-direction:column;gap:8px;
+}
+.zoombar button{
+width:52px;height:52px;border-radius:12px;border:none;
+font-size:28px;font-weight:bold;cursor:pointer;
+background:rgba(247,243,230,.92);color:var(--ink);
+box-shadow:0 2px 8px rgba(0,0,0,.4);
+}
+.zoombar button:active{transform:scale(.95)}
+/* Polar grid toggle button */
+#btnGrid{
+position:absolute;top:26px;left:26px;
+width:52px;height:52px;border-radius:12px;border:none;
+font-size:22px;cursor:pointer;
+background:rgba(247,243,230,.92);color:var(--ink);
+box-shadow:0 2px 8px rgba(0,0,0,.4);
+display:none;
+}
+#btnGrid.active{
+background:var(--score-gold);
+}
+#btnGrid:active{transform:scale(.95)}
+.instruction{
+font-size:21px;line-height:1.4;text-align:center;
+background:var(--cream);color:var(--ink);
+border-radius:12px;padding:14px;margin-top:14px;
+display:none;
+}
+.instruction strong{color:var(--green)}
+#results{display:none}
+.result-row{
+display:flex;align-items:center;gap:14px;
+background:var(--cream);color:var(--ink);
+border-radius:12px;padding:14px;margin-top:10px;
+font-size:22px;
+}
+.result-row .medal{font-size:30px;width:42px;text-align:center}
+.result-row .dist{margin-left:auto;font-weight:bold;font-size:24px}
+.result-row.winner{box-shadow:0 0 0 4px var(--score-gold)}
+.too-close{
+background:var(--alert-red);color:#fff;
+border-radius:12px;padding:14px;margin-top:12px;
+font-size:19px;text-align:center;display:none;
+}
+.note{font-size:15px;color:#bcd3b9;margin-top:12px;text-align:center;line-height:1.5}
+input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+<h1>Jack <span class="jack" aria-hidden="true"></span> Check</h1>
+<p>Which bowl is closest? No bending required.</p>
+</header>
+<main>
+<div class="panel" id="startPanel">
+<button class="btn" id="btnPhoto">📷 Take a photo of the head</button>
+<button class="btn secondary" id="btnDemo">Try with a demo image</button>
+<p class="note">Stand over the head and photograph it from as directly above as you can. The jack must be visible.</p>
+<input type="file" id="fileInput" accept="image/*" capture="environment">
+</div>
+
+<div class="instruction" id="instruction"></div>
+
+<div id="stage" class="panel">
+<canvas id="canvas"></canvas>
+<button id="btnGrid" aria-label="Toggle polar grid" title="Toggle distance grid">⊙</button>
+<div class="zoombar">
+<button id="zoomIn" aria-label="Zoom in">＋</button>
+<button id="zoomOut" aria-label="Zoom out">−</button>
+<button id="zoomReset" aria-label="Reset zoom" style="font-size:20px">⤢</button>
+</div>
+<button class="btn secondary" id="btnUndo" style="display:none">↩ Undo last tap</button>
+<button class="btn" id="btnFinish" style="display:none">✓ Done — show results</button>
+</div>
+
+<div id="results" class="panel">
+<div id="resultRows"></div>
+<div class="too-close" id="tooClose">⚠️ Top two bowls are within ~1&nbsp;cm — too close to call from a photo. Use a string measure.</div>
+<button class="btn" id="btnAgain">📷 Measure another end</button>
+<p class="note">Measured edge of jack to edge of bowl, scaled from the jack's official diameter (63.5&nbsp;mm). Accuracy depends on photographing from directly above.</p>
+</div>
+</main>
+
+<script>
+(() => {
+const JACK_MM = 63.5; // standard jack diameter
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const stage = document.getElementById('stage');
+const instruction = document.getElementById('instruction');
+const startPanel = document.getElementById('startPanel');
+const resultsPanel = document.getElementById('results');
+const resultRows = document.getElementById('resultRows');
+const tooClose = document.getElementById('tooClose');
+const btnUndo = document.getElementById('btnUndo');
+const btnFinish = document.getElementById('btnFinish');
+const btnGrid = document.getElementById('btnGrid');
+
+let img = new Image();
+let phase = 'idle'; // 'jackCenter' -> 'jackEdge' -> 'bowls'
+let jack = null;   // {x,y}
+let jackEdge = null; // {x,y}
+let bowls = [];    // [{x,y,r}] r in px (null until edge tapped)
+let mmPerPx = null;
+let view = {s:1, ox:0, oy:0}; // zoom scale + pan offset (canvas px)
+let showGrid = false; // polar grid toggle
+
+// Polar grid ring distances in mm (from jack edge)
+const GRID_RINGS_MM = [50, 100, 150, 200, 300, 400, 500];
+const GRID_COLORS = [
+  'rgba(255,255,100,0.75)',  // 50mm  - bright yellow
+  'rgba(100,220,255,0.75)',  // 100mm - cyan
+  'rgba(255,140,60,0.75)',   // 150mm - orange
+  'rgba(180,255,100,0.75)',  // 200mm - lime
+  'rgba(255,100,200,0.75)',  // 300mm - pink
+  'rgba(150,200,255,0.75)',  // 400mm - light blue
+  'rgba(255,200,100,0.75)',  // 500mm - gold
+];
+
+function setInstruction(html){
+  instruction.innerHTML = html;
+  instruction.style.display = html ? 'block' : 'none';
+}
+
+function reset(){
+  phase='idle'; jack=null; jackEdge=null; bowls=[]; mmPerPx=null;
+  view={s:1,ox:0,oy:0};
+  showGrid=false;
+  btnGrid.classList.remove('active');
+  btnGrid.style.display='none';
+  resultsPanel.style.display='none';
+  btnUndo.style.display='none';
+  btnFinish.style.display='none';
+}
+
+function loadImage(src){
+  reset();
+  img = new Image();
+  img.onload = () => {
+    const maxW = 1100;
+    const scale = Math.min(1, maxW / img.width);
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    stage.style.display='block';
+    startPanel.style.display='none';
+    phase='jackCenter';
+    setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong> (the small white ball). You can pinch or use ＋ to zoom in first.');
+    draw();
+  };
+  img.src = src;
+}
+
+// ---------- demo image (synthetic head) ----------
+function makeDemo(){
+  const c = document.createElement('canvas');
+  c.width = 900; c.height = 700;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,700);
+  grad.addColorStop(0,'#3f7d3f'); grad.addColorStop(1,'#2f6b33');
+  g.fillStyle = grad; g.fillRect(0,0,900,700);
+  g.globalAlpha=.07; g.fillStyle='#fff';
+  for(let x=0;x<900;x+=120) g.fillRect(x,0,60,700);
+  g.globalAlpha=1;
+  const ball=(x,y,r,col,hi)=>{
+    const rg=g.createRadialGradient(x-r*.35,y-r*.35,r*.15,x,y,r);
+    rg.addColorStop(0,hi); rg.addColorStop(1,col);
+    g.fillStyle=rg; g.beginPath(); g.arc(x,y,r,0,7); g.fill();
+    g.strokeStyle='rgba(0,0,0,.35)'; g.lineWidth=2; g.stroke();
+  };
+  ball(450,330,22,'#e8e4d8','#ffffff');
+  ball(560,300,40,'#1a1a1a','#555');
+  ball(380,460,40,'#1a1a1a','#555');
+  ball(620,470,40,'#5a2c14','#9a5a32');
+  ball(250,250,40,'#5a2c14','#9a5a32');
+  return c.toDataURL('image/png');
+}
+
+// ---------- drawing ----------
+function clampView(){
+  view.s = Math.min(8, Math.max(1, view.s));
+  const maxX = canvas.width*(view.s-1), maxY = canvas.height*(view.s-1);
+  view.ox = Math.min(0, Math.max(-maxX, view.ox));
+  view.oy = Math.min(0, Math.max(-maxY, view.oy));
+}
+
+function drawPolarGrid(u){
+  if(!jack || !mmPerPx || !showGrid) return;
+  const jackRpx = jackEdge ? dist(jack, jackEdge) : 0;
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+
+  GRID_RINGS_MM.forEach((mm, i) => {
+    // radius = jack radius + gap in px
+    const rPx = jackRpx + mm / mmPerPx;
+    const col = GRID_COLORS[i];
+
+    // Draw ring
+    ctx.beginPath();
+    ctx.arc(jack.x, jack.y, rPx, 0, Math.PI * 2);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2 * u;
+    ctx.setLineDash([10*u, 6*u]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Label at 3 o'clock position
+    const lx = jack.x + rPx + 4*u;
+    const ly = jack.y;
+    const label = mm >= 10 ? (mm >= 1000 ? (mm/1000).toFixed(1)+'m' : mm+'mm') : mm+'mm';
+    ctx.font = `bold ${14*u}px Georgia`;
+    const tw = ctx.measureText(label).width;
+    // badge background
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(lx-2*u, ly-10*u, tw+8*u, 20*u, 4*u);
+    else ctx.rect(lx-2*u, ly-10*u, tw+8*u, 20*u);
+    ctx.fill();
+    ctx.fillStyle = col;
+    ctx.fillText(label, lx+2*u, ly);
+  });
+  ctx.restore();
+}
+
+function draw(){
+  clampView();
+  const u = 1/view.s;
+  ctx.setTransform(view.s,0,0,view.s,view.ox,view.oy);
+  ctx.clearRect(-view.ox*u,-view.oy*u,canvas.width*u+canvas.width,canvas.height*u+canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+  if(jack){
+    ctx.strokeStyle='#e8b53a'; ctx.lineWidth=3*u;
+    cross(jack.x,jack.y,'#e8b53a',u);
+    if(jackEdge){
+      const r = dist(jack,jackEdge);
+      ctx.beginPath(); ctx.arc(jack.x,jack.y,r,0,7); ctx.stroke();
+    }
+    // Draw polar grid (after jack circle, before bowls)
+    drawPolarGrid(u);
+  }
+
+  bowls.forEach((b,i)=>{
+    if(!b.r) cross(b.x,b.y,'#ff5544',u);
+    if(b.r){
+      ctx.strokeStyle='#ff5544'; ctx.lineWidth=3*u;
+      ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.stroke();
+    }
+    if(jack){
+      ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2*u;
+      ctx.setLineDash([8*u,6*u]);
+      ctx.beginPath(); ctx.moveTo(jack.x,jack.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      ctx.setLineDash([]);
+      bowlNumber(b,String(i+1),u);
+    }
+  });
+
+  ctx.setTransform(1,0,0,1,0,0);
+}
+
+function cross(x,y,col,u){
+  u=u||1;
+  ctx.strokeStyle=col; ctx.lineWidth=3*u;
+  ctx.beginPath();
+  ctx.moveTo(x-14*u,y); ctx.lineTo(x+14*u,y);
+  ctx.moveTo(x,y-14*u); ctx.lineTo(x,y+14*u);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,7*u,0,7); ctx.stroke();
+}
+
+function bowlNumber(b,t,u){
+  u=u||1;
+  const size = b.r ? Math.max(40*u, b.r*1.1) : 46*u;
+  ctx.font = `bold ${size}px Georgia`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.lineJoin='round';
+  ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.lineWidth=size*.18;
+  ctx.strokeText(t,b.x,b.y);
+  ctx.fillStyle='#e8b53a';
+  ctx.fillText(t,b.x,b.y);
+  ctx.textBaseline='alphabetic';
+}
+
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+// ---------- interaction ----------
+function toImage(clientX, clientY){
+  const r = canvas.getBoundingClientRect();
+  const cx = (clientX - r.left) * (canvas.width / r.width);
+  const cy = (clientY - r.top) * (canvas.height / r.height);
+  return { x:(cx - view.ox)/view.s, y:(cy - view.oy)/view.s };
+}
+
+function placeTap(p){
+  if(phase==='jackCenter'){
+    jack=p; phase='jackEdge';
+    setInstruction('Step 2 of 3 — Now tap the <strong>edge of the jack</strong>. This sets the scale (a jack is 63.5&nbsp;mm wide). Pinch to zoom in for accuracy.');
+    btnUndo.style.display='block';
+  } else if(phase==='jackEdge'){
+    jackEdge=p;
+    mmPerPx = (JACK_MM/2) / Math.max(2, dist(jack,jackEdge));
+    phase='bowls';
+    // Show the grid button now that scale is known
+    btnGrid.style.display='block';
+    setInstruction('Step 3 of 3 — Tap the <strong>centre of Bowl 1</strong>. <br><small>Tap ⊙ to toggle the distance grid.</small>');
+  } else if(phase==='bowls'){
+    const last = bowls[bowls.length-1];
+    if(last && !last.r){
+      last.r = Math.max(3, dist(last,p));
+      setInstruction('Tap the <strong>centre of the next bowl</strong> — or press Done.');
+      btnFinish.style.display='block';
+    } else {
+      bowls.push({x:p.x,y:p.y,r:null});
+      setInstruction(`Now tap the <strong>edge of Bowl ${bowls.length}</strong> (where it touches the grass works best — the side nearest the jack).`);
+      btnFinish.style.display='none';
+    }
+  }
+  draw();
+}
+
+// Polar grid toggle
+btnGrid.addEventListener('click', () => {
+  showGrid = !showGrid;
+  btnGrid.classList.toggle('active', showGrid);
+  draw();
+});
+
+const pointers = new Map();
+let pinchStart = null;
+let panStart = null;
+let moved = false;
+
+canvas.addEventListener('pointerdown', e=>{
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  moved = false;
+  if(pointers.size===2){
+    const [a,b]=[...pointers.values()];
+    pinchStart = {
+      d: Math.hypot(a.x-b.x,a.y-b.y), s: view.s,
+      mx:(a.x+b.x)/2, my:(a.y+b.y)/2, ox:view.ox, oy:view.oy
+    };
+    panStart=null;
+  } else if(pointers.size===1){
+    panStart = {x:e.clientX, y:e.clientY, ox:view.ox, oy:view.oy};
+  }
+});
+
+canvas.addEventListener('pointermove', e=>{
+  if(!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  const r = canvas.getBoundingClientRect();
+  const k = canvas.width / r.width;
+  if(pointers.size===2 && pinchStart){
+    const [a,b]=[...pointers.values()];
+    const d = Math.hypot(a.x-b.x,a.y-b.y);
+    const newS = Math.min(8, Math.max(1, pinchStart.s * d/Math.max(10,pinchStart.d)));
+    const mx=(pinchStart.mx - r.left)*k, my=(pinchStart.my - r.top)*k;
+    view.ox = mx - (mx - pinchStart.ox)*(newS/pinchStart.s);
+    view.oy = my - (my - pinchStart.oy)*(newS/pinchStart.s);
+    view.s = newS;
+    moved = true;
+    draw();
+  } else if(pointers.size===1 && panStart){
+    const dx=(e.clientX-panStart.x), dy=(e.clientY-panStart.y);
+    if(Math.hypot(dx,dy) > 8) moved = true;
+    if(moved && view.s>1){
+      view.ox = panStart.ox + dx*k;
+      view.oy = panStart.oy + dy*k;
+      draw();
+    }
+  }
+});
+
+function pointerEnd(e){
+  const wasSingle = pointers.size===1;
+  pointers.delete(e.pointerId);
+  if(pointers.size<2) pinchStart=null;
+  if(wasSingle && !moved && e.type==='pointerup'){
+    placeTap(toImage(e.clientX, e.clientY));
+  }
+  if(pointers.size===0) panStart=null;
+}
+canvas.addEventListener('pointerup', pointerEnd);
+canvas.addEventListener('pointercancel', pointerEnd);
+
+document.getElementById('zoomIn').addEventListener('click', ()=>zoomBy(1.5));
+document.getElementById('zoomOut').addEventListener('click', ()=>zoomBy(1/1.5));
+document.getElementById('zoomReset').addEventListener('click', ()=>{
+  view={s:1,ox:0,oy:0}; draw();
+});
+
+function zoomBy(f){
+  const cx=canvas.width/2, cy=canvas.height/2;
+  const newS=Math.min(8,Math.max(1,view.s*f));
+  view.ox = cx - (cx - view.ox)*(newS/view.s);
+  view.oy = cy - (cy - view.oy)*(newS/view.s);
+  view.s=newS;
+  draw();
+}
+
+btnUndo.addEventListener('click', ()=>{
+  if(phase==='bowls' && bowls.length){
+    const last = bowls[bowls.length-1];
+    if(last.r){ last.r = null;
+      setInstruction(`Tap the <strong>edge of Bowl ${bowls.length}</strong>.`);
+    } else { bowls.pop();
+      setInstruction(bowls.length
+        ? 'Tap the <strong>centre of the next bowl</strong> — or press Done.'
+        : 'Step 3 of 3 — Tap the <strong>centre of Bowl 1</strong>.');
+    }
+  }
+  else if(phase==='bowls' && !bowls.length){ jackEdge=null; mmPerPx=null; phase='jackEdge';
+    btnGrid.style.display='none'; showGrid=false; btnGrid.classList.remove('active');
+    setInstruction('Step 2 of 3 — Tap the <strong>edge of the jack</strong>.'); }
+  else if(phase==='jackEdge'){ jack=null; phase='jackCenter';
+    setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong>.'); }
+  btnFinish.style.display = (bowls.length && bowls[bowls.length-1].r) ? 'block':'none';
+  draw();
+});
+
+btnFinish.addEventListener('click', ()=>{
+  const jackRpx = dist(jack,jackEdge);
+  const measured = bowls.filter(b=>b.r).map((b,i)=>({
+    n:i+1,
+    mm: Math.max(0, (dist(jack,b) - jackRpx - b.r) * mmPerPx)
+  })).sort((a,b)=>a.mm-b.mm);
+
+  resultRows.innerHTML='';
+  const medals=['🥇','🥈','🥉'];
+  measured.forEach((m,i)=>{
+    const row=document.createElement('div');
+    row.className='result-row'+(i===0?' winner':'');
+    const cm=(m.mm/10);
+    row.innerHTML=`<span class="medal">${medals[i]||(i+1)+'.'}</span>
+<span>Bowl ${m.n}</span>
+<span class="dist">${cm>=100?(cm/100).toFixed(2)+' m':cm.toFixed(1)+' cm'}</span>`;
+    resultRows.appendChild(row);
+  });
+
+  tooClose.style.display =
+    (measured.length>1 && (measured[1].mm-measured[0].mm)<10) ? 'block':'none';
+  setInstruction('');
+  resultsPanel.style.display='block';
+  btnFinish.style.display='none';
+  btnUndo.style.display='none';
+  resultsPanel.scrollIntoView({behavior:'smooth'});
+});
+
+document.getElementById('btnAgain').addEventListener('click', ()=>{
+  stage.style.display='none';
+  resultsPanel.style.display='none';
+  startPanel.style.display='block';
+  setInstruction('');
+  reset();
+});
+
+document.getElementById('btnPhoto').addEventListener('click',
+  ()=>document.getElementById('fileInput').click());
+
+document.getElementById('fileInput').addEventListener('change', e=>{
+  const f=e.target.files[0];
+  if(f) loadImage(URL.createObjectURL(f));
+  e.target.value='';
+});
+
+document.getElementById('btnDemo').addEventListener('click',
+  ()=>loadImage(makeDemo()));
+
+})();
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
