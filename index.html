@@ -70,7 +70,18 @@
   .btn[disabled]{opacity:.4;cursor:default}
 
   #stage{position:relative;margin-top:14px;display:none}
-  canvas{width:100%;border-radius:12px;display:block;touch-action:manipulation}
+  canvas{width:100%;border-radius:12px;display:block;touch-action:none}
+  .zoombar{
+    position:absolute;top:26px;right:26px;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .zoombar button{
+    width:52px;height:52px;border-radius:12px;border:none;
+    font-size:28px;font-weight:bold;cursor:pointer;
+    background:rgba(247,243,230,.92);color:var(--ink);
+    box-shadow:0 2px 8px rgba(0,0,0,.4);
+  }
+  .zoombar button:active{transform:scale(.95)}
 
   .instruction{
     font-size:21px;line-height:1.4;text-align:center;
@@ -117,6 +128,11 @@
 
   <div id="stage" class="panel">
     <canvas id="canvas"></canvas>
+    <div class="zoombar">
+      <button id="zoomIn" aria-label="Zoom in">＋</button>
+      <button id="zoomOut" aria-label="Zoom out">−</button>
+      <button id="zoomReset" aria-label="Reset zoom" style="font-size:20px">⤢</button>
+    </div>
     <button class="btn secondary" id="btnUndo" style="display:none">↩ Undo last tap</button>
     <button class="btn" id="btnFinish" style="display:none">✓ Done — show results</button>
   </div>
@@ -149,6 +165,7 @@
   let jackEdge = null;     // {x,y}
   let bowls = [];          // [{x,y,r}]  r in px (null until edge tapped)
   let mmPerPx = null;
+  let view = {s:1, ox:0, oy:0};   // zoom scale + pan offset (canvas px)
 
   function setInstruction(html){
     instruction.innerHTML = html;
@@ -157,6 +174,7 @@
 
   function reset(){
     phase='idle'; jack=null; jackEdge=null; bowls=[]; mmPerPx=null;
+    view={s:1,ox:0,oy:0};
     resultsPanel.style.display='none';
     btnUndo.style.display='none';
     btnFinish.style.display='none';
@@ -173,7 +191,7 @@
       stage.style.display='block';
       startPanel.style.display='none';
       phase='jackCenter';
-      setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong> (the small white ball).');
+      setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong> (the small white ball). You can pinch or use ＋ to zoom in first.');
       draw();
     };
     img.src = src;
@@ -207,59 +225,73 @@
   }
 
   // ---------- drawing ----------
+  function clampView(){
+    view.s = Math.min(8, Math.max(1, view.s));
+    const maxX = canvas.width*(view.s-1), maxY = canvas.height*(view.s-1);
+    view.ox = Math.min(0, Math.max(-maxX, view.ox));
+    view.oy = Math.min(0, Math.max(-maxY, view.oy));
+  }
   function draw(){
+    clampView();
+    const u = 1/view.s;  // keeps overlay strokes the same size on screen
+    ctx.setTransform(view.s,0,0,view.s,view.ox,view.oy);
+    ctx.clearRect(-view.ox*u,-view.oy*u,canvas.width*u+canvas.width,canvas.height*u+canvas.height);
     ctx.drawImage(img,0,0,canvas.width,canvas.height);
     if(jack){
-      ctx.strokeStyle='#e8b53a'; ctx.lineWidth=3;
-      cross(jack.x,jack.y,'#e8b53a');
+      ctx.strokeStyle='#e8b53a'; ctx.lineWidth=3*u;
+      cross(jack.x,jack.y,'#e8b53a',u);
       if(jackEdge){
         const r = dist(jack,jackEdge);
         ctx.beginPath(); ctx.arc(jack.x,jack.y,r,0,7); ctx.stroke();
       }
     }
     bowls.forEach((b,i)=>{
-      cross(b.x,b.y,'#ff5544');
+      cross(b.x,b.y,'#ff5544',u);
       if(b.r){
-        ctx.strokeStyle='#ff5544'; ctx.lineWidth=3;
+        ctx.strokeStyle='#ff5544'; ctx.lineWidth=3*u;
         ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.stroke();
       }
       if(jack){
-        ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2;
-        ctx.setLineDash([8,6]);
+        ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2*u;
+        ctx.setLineDash([8*u,6*u]);
         ctx.beginPath(); ctx.moveTo(jack.x,jack.y); ctx.lineTo(b.x,b.y); ctx.stroke();
         ctx.setLineDash([]);
-        label(b.x,b.y-((b.r||0)+26),String(i+1));
+        label(b.x,b.y-((b.r||0)+26*u),String(i+1),u);
       }
     });
+    ctx.setTransform(1,0,0,1,0,0);
   }
-  function cross(x,y,col){
-    ctx.strokeStyle=col; ctx.lineWidth=3;
+  function cross(x,y,col,u){
+    u=u||1;
+    ctx.strokeStyle=col; ctx.lineWidth=3*u;
     ctx.beginPath();
-    ctx.moveTo(x-14,y); ctx.lineTo(x+14,y);
-    ctx.moveTo(x,y-14); ctx.lineTo(x,y+14);
+    ctx.moveTo(x-14*u,y); ctx.lineTo(x+14*u,y);
+    ctx.moveTo(x,y-14*u); ctx.lineTo(x,y+14*u);
     ctx.stroke();
-    ctx.beginPath(); ctx.arc(x,y,7,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,7*u,0,7); ctx.stroke();
   }
-  function label(x,y,t){
-    ctx.font='bold 22px Georgia';
-    const w = ctx.measureText(t).width+16;
+  function label(x,y,t,u){
+    u=u||1;
+    ctx.font=`bold ${22*u}px Georgia`;
+    const w = ctx.measureText(t).width+16*u;
     ctx.fillStyle='rgba(20,33,15,.85)';
-    ctx.beginPath(); ctx.roundRect(x-w/2,y-18,w,30,8); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(x-w/2,y-18*u,w,30*u,8*u); ctx.fill();
     ctx.fillStyle='#e8b53a'; ctx.textAlign='center';
-    ctx.fillText(t,x,y+4);
+    ctx.fillText(t,x,y+4*u);
   }
   const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
-  // ---------- interaction ----------
-  canvas.addEventListener('click', e=>{
+  // ---------- interaction: tap to mark, pinch to zoom, drag to pan ----------
+  function toImage(clientX, clientY){
     const r = canvas.getBoundingClientRect();
-    const p = {
-      x:(e.clientX-r.left)*(canvas.width/r.width),
-      y:(e.clientY-r.top)*(canvas.height/r.height)
-    };
+    const cx = (clientX - r.left) * (canvas.width / r.width);
+    const cy = (clientY - r.top) * (canvas.height / r.height);
+    return { x:(cx - view.ox)/view.s, y:(cy - view.oy)/view.s };
+  }
+  function placeTap(p){
     if(phase==='jackCenter'){
       jack=p; phase='jackEdge';
-      setInstruction('Step 2 of 3 — Now tap the <strong>edge of the jack</strong>. This sets the scale (a jack is 63.5&nbsp;mm wide).');
+      setInstruction('Step 2 of 3 — Now tap the <strong>edge of the jack</strong>. This sets the scale (a jack is 63.5&nbsp;mm wide). Pinch to zoom in for accuracy.');
       btnUndo.style.display='block';
     } else if(phase==='jackEdge'){
       jackEdge=p;
@@ -269,7 +301,6 @@
     } else if(phase==='bowls'){
       const last = bowls[bowls.length-1];
       if(last && !last.r){
-        // this tap is the bowl's edge
         last.r = Math.max(3, dist(last,p));
         setInstruction('Tap the <strong>centre of the next bowl</strong> — or press Done.');
         btnFinish.style.display='block';
@@ -280,7 +311,82 @@
       }
     }
     draw();
+  }
+
+  const pointers = new Map();
+  let pinchStart = null;   // {d, s, mx, my, ox, oy}
+  let panStart = null;     // {x, y, ox, oy}
+  let moved = false;
+
+  canvas.addEventListener('pointerdown', e=>{
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    moved = false;
+    if(pointers.size===2){
+      const [a,b]=[...pointers.values()];
+      pinchStart = {
+        d: Math.hypot(a.x-b.x,a.y-b.y), s: view.s,
+        mx:(a.x+b.x)/2, my:(a.y+b.y)/2, ox:view.ox, oy:view.oy
+      };
+      panStart=null;
+    } else if(pointers.size===1){
+      panStart = {x:e.clientX, y:e.clientY, ox:view.ox, oy:view.oy};
+    }
   });
+
+  canvas.addEventListener('pointermove', e=>{
+    if(!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    const r = canvas.getBoundingClientRect();
+    const k = canvas.width / r.width; // CSS px -> canvas px
+
+    if(pointers.size===2 && pinchStart){
+      const [a,b]=[...pointers.values()];
+      const d = Math.hypot(a.x-b.x,a.y-b.y);
+      const newS = Math.min(8, Math.max(1, pinchStart.s * d/Math.max(10,pinchStart.d)));
+      // zoom around the pinch midpoint
+      const mx=(pinchStart.mx - r.left)*k, my=(pinchStart.my - r.top)*k;
+      view.ox = mx - (mx - pinchStart.ox)*(newS/pinchStart.s);
+      view.oy = my - (my - pinchStart.oy)*(newS/pinchStart.s);
+      view.s = newS;
+      moved = true;
+      draw();
+    } else if(pointers.size===1 && panStart){
+      const dx=(e.clientX-panStart.x), dy=(e.clientY-panStart.y);
+      if(Math.hypot(dx,dy) > 8) moved = true;
+      if(moved && view.s>1){
+        view.ox = panStart.ox + dx*k;
+        view.oy = panStart.oy + dy*k;
+        draw();
+      }
+    }
+  });
+
+  function pointerEnd(e){
+    const wasSingle = pointers.size===1;
+    pointers.delete(e.pointerId);
+    if(pointers.size<2) pinchStart=null;
+    if(wasSingle && !moved && e.type==='pointerup'){
+      placeTap(toImage(e.clientX, e.clientY));
+    }
+    if(pointers.size===0) panStart=null;
+  }
+  canvas.addEventListener('pointerup', pointerEnd);
+  canvas.addEventListener('pointercancel', pointerEnd);
+
+  document.getElementById('zoomIn').addEventListener('click', ()=>zoomBy(1.5));
+  document.getElementById('zoomOut').addEventListener('click', ()=>zoomBy(1/1.5));
+  document.getElementById('zoomReset').addEventListener('click', ()=>{
+    view={s:1,ox:0,oy:0}; draw();
+  });
+  function zoomBy(f){
+    const cx=canvas.width/2, cy=canvas.height/2;
+    const newS=Math.min(8,Math.max(1,view.s*f));
+    view.ox = cx - (cx - view.ox)*(newS/view.s);
+    view.oy = cy - (cy - view.oy)*(newS/view.s);
+    view.s=newS;
+    draw();
+  }
 
   btnUndo.addEventListener('click', ()=>{
     if(phase==='bowls' && bowls.length){
