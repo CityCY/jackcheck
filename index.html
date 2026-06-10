@@ -246,7 +246,7 @@
       }
     }
     bowls.forEach((b,i)=>{
-      cross(b.x,b.y,'#ff5544',u);
+      if(!b.r) cross(b.x,b.y,'#ff5544',u);
       if(b.r){
         ctx.strokeStyle='#ff5544'; ctx.lineWidth=3*u;
         ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.stroke();
@@ -256,7 +256,7 @@
         ctx.setLineDash([8*u,6*u]);
         ctx.beginPath(); ctx.moveTo(jack.x,jack.y); ctx.lineTo(b.x,b.y); ctx.stroke();
         ctx.setLineDash([]);
-        label(b.x,b.y-((b.r||0)+26*u),String(i+1),u);
+        bowlNumber(b,String(i+1),u);
       }
     });
     ctx.setTransform(1,0,0,1,0,0);
@@ -278,6 +278,20 @@
     ctx.beginPath(); ctx.roundRect(x-w/2,y-18*u,w,30*u,8*u); ctx.fill();
     ctx.fillStyle='#e8b53a'; ctx.textAlign='center';
     ctx.fillText(t,x,y+4*u);
+  }
+  function bowlNumber(b,t,u){
+    u=u||1;
+    // big number sitting right on the bowl; sized to the bowl once its
+    // radius is known, otherwise a large fixed size
+    const size = b.r ? Math.max(40*u, b.r*1.1) : 46*u;
+    ctx.font = `bold ${size}px Georgia`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineJoin='round';
+    ctx.strokeStyle='rgba(0,0,0,.85)'; ctx.lineWidth=size*.18;
+    ctx.strokeText(t,b.x,b.y);
+    ctx.fillStyle='#e8b53a';
+    ctx.fillText(t,b.x,b.y);
+    ctx.textBaseline='alphabetic';
   }
   const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 
