@@ -125,7 +125,7 @@
     <div id="resultRows"></div>
     <div class="too-close" id="tooClose">⚠️ Top two bowls are within ~1&nbsp;cm — too close to call from a photo. Use a string measure.</div>
     <button class="btn" id="btnAgain">📷 Measure another end</button>
-    <p class="note">Distances are estimates scaled from the jack's official diameter (63.5&nbsp;mm). Accuracy depends on photographing from directly above.</p>
+    <p class="note">Measured edge of jack to edge of bowl, scaled from the jack's official diameter (63.5&nbsp;mm). Accuracy depends on photographing from directly above.</p>
   </div>
 </main>
 
@@ -147,7 +147,7 @@
   let phase = 'idle';      // 'jackCenter' -> 'jackEdge' -> 'bowls'
   let jack = null;         // {x,y}
   let jackEdge = null;     // {x,y}
-  let bowls = [];          // [{x,y}]
+  let bowls = [];          // [{x,y,r}]  r in px (null until edge tapped)
   let mmPerPx = null;
 
   function setInstruction(html){
@@ -219,12 +219,16 @@
     }
     bowls.forEach((b,i)=>{
       cross(b.x,b.y,'#ff5544');
+      if(b.r){
+        ctx.strokeStyle='#ff5544'; ctx.lineWidth=3;
+        ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.stroke();
+      }
       if(jack){
         ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2;
         ctx.setLineDash([8,6]);
         ctx.beginPath(); ctx.moveTo(jack.x,jack.y); ctx.lineTo(b.x,b.y); ctx.stroke();
         ctx.setLineDash([]);
-        label(b.x,b.y-26,String(i+1));
+        label(b.x,b.y-((b.r||0)+26),String(i+1));
       }
     });
   }
@@ -261,28 +265,48 @@
       jackEdge=p;
       mmPerPx = (JACK_MM/2) / Math.max(2, dist(jack,jackEdge));
       phase='bowls';
-      setInstruction('Step 3 of 3 — Tap the <strong>centre of each bowl</strong> you want measured, then press Done.');
+      setInstruction('Step 3 of 3 — Tap the <strong>centre of Bowl 1</strong>.');
     } else if(phase==='bowls'){
-      bowls.push(p);
-      if(bowls.length>=1) btnFinish.style.display='block';
+      const last = bowls[bowls.length-1];
+      if(last && !last.r){
+        // this tap is the bowl's edge
+        last.r = Math.max(3, dist(last,p));
+        setInstruction('Tap the <strong>centre of the next bowl</strong> — or press Done.');
+        btnFinish.style.display='block';
+      } else {
+        bowls.push({x:p.x,y:p.y,r:null});
+        setInstruction(`Now tap the <strong>edge of Bowl ${bowls.length}</strong> (where it touches the grass works best — the side nearest the jack).`);
+        btnFinish.style.display='none';
+      }
     }
     draw();
   });
 
   btnUndo.addEventListener('click', ()=>{
-    if(phase==='bowls' && bowls.length){ bowls.pop(); }
+    if(phase==='bowls' && bowls.length){
+      const last = bowls[bowls.length-1];
+      if(last.r){ last.r = null;
+        setInstruction(`Tap the <strong>edge of Bowl ${bowls.length}</strong>.`);
+      } else { bowls.pop();
+        setInstruction(bowls.length
+          ? 'Tap the <strong>centre of the next bowl</strong> — or press Done.'
+          : 'Step 3 of 3 — Tap the <strong>centre of Bowl 1</strong>.');
+      }
+    }
     else if(phase==='bowls' && !bowls.length){ jackEdge=null; mmPerPx=null; phase='jackEdge';
       setInstruction('Step 2 of 3 — Tap the <strong>edge of the jack</strong>.'); }
     else if(phase==='jackEdge'){ jack=null; phase='jackCenter';
       setInstruction('Step 1 of 3 — Tap the <strong>centre of the jack</strong>.'); }
-    if(bowls.length===0) btnFinish.style.display='none';
+    btnFinish.style.display = (bowls.length && bowls[bowls.length-1].r) ? 'block':'none';
     draw();
   });
 
   btnFinish.addEventListener('click', ()=>{
-    const measured = bowls.map((b,i)=>({
+    const jackRpx = dist(jack,jackEdge);
+    const measured = bowls.filter(b=>b.r).map((b,i)=>({
       n:i+1,
-      mm: dist(jack,b)*mmPerPx - 0 // centre-to-centre estimate
+      // edge of jack to edge of bowl: centre gap minus both radii
+      mm: Math.max(0, (dist(jack,b) - jackRpx - b.r) * mmPerPx)
     })).sort((a,b)=>a.mm-b.mm);
 
     resultRows.innerHTML='';
